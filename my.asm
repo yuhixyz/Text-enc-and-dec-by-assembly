@@ -1,8 +1,5 @@
-; 预期用两种简单加密组合
-; 1. 凯撒加密
-; 2. 置换加密
-
 DATA SEGMENT
+
 ORI_FILE DB 'fils\ori_file.txt', 0  ; 原始文件
 ENC_FILE DB 'files\enc_file.txt', 0  ; 加密文件
 DEC_FILE DB 'files\dec_file.txt', 0  ; 解密文件
@@ -22,7 +19,9 @@ ENC_INPUT_BUF DB 101, ?, 100 DUP(?)  ;  密文的输入缓冲区
 DEC_OUTPUT_BUF DB 100 DUP(?)  ;  解密文的输出缓冲区
 KEY DB 0  ; 密钥0~9
 AFTER_ENC DB 'String after encryption: ', '$'
- 
+AFTER_DEC DB 'String after decryption: ', '$'
+PLAIN_TABLE DB 'abcdedghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', '$'
+CIPHER_TABLE DB 62 DUP(?), '$'  ; 密文表（由明文循环左移KEY位得到）
 
 DATA ENDS
 
@@ -181,20 +180,8 @@ ENC_A_STR PROC
 
     ; 验证合法性（只含有数字和字母，暂时不写）
 
-    ; 提示输入小于10的非负整数
-    CALL PRINT_LINE
-    MOV AH, 09H
-    LEA DX, KEY_INPUT
-    INT 21H
-    CALL PRINT_LINE
+    CALL INPUT_A_KEY  ; 读入KEY
 
-    ; 接收用户输入一个小于10的非负整数（合法性暂时不验证）
-    ; 1号功能调用，从键盘键入一个字符，出口参数AL=按键ASCII码
-    MOV AH, 01H
-    INT 21H
-    SUB AL, 30H
-    MOV KEY, AL  ; 将key存放到KEY
-    
     ; 打印输入的数字验证（已经正确输出）
     ; CALL PRINT_LINE
     ; MOV AH, 02H
@@ -309,15 +296,92 @@ ENC_A_STR ENDP
 
 ; 解密一个字符串
 DEC_A_STR PROC
+    ; 1. 输入字符串
+    ; 2. 解密字符串
+    ; 3. 输出解密后的字符串
 
+    ; 提示输入一个字符串
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, STR_INPUT
+    INT 21H
+    CALL PRINT_LINE
 
+    ; 输入一个字符串
+    ; 存放在ENC_INPUT_BUF+2开始的单元
+    ; 字符串长度存放在ENC_INPUT_BUF+1单元
+    ; 解密字符串存放在DEC_OUTPUT_BUF开始的单元
+    MOV AH, 0AH
+    LEA DX, ENC_INPUT_BUF
+    INT 21H
+    ; 获取字符串长度存到AL中
+    MOV AL, ENC_INPUT_BUF + 1
+    MOV AH, 0
+    MOV SI, AX  ; 将SI赋值为字符串长度
+    MOV ENC_INPUT_BUF[SI + 2], '$'  ; 将字符串末尾的0DH替换成$
+    ; 注意解密输出字符串是从0位置开始存放的，前面没有最大长度以及实际长度字段
+    MOV DEC_OUTPUT_BUF[SI], '$'  ; 将字符串末尾的0DH替换成$
+
+    CALL GENERATE_CIPHER_TABLE  ; 首先根据明文表生成密文表
+    ; 枚举密文串的每一个字符，转化为密文写到对应位置
+    
+    ; 下面开始解密
+    ; 1. 枚举输入的加密字符串ENC_INPUT_BUF+2
+    ; 2. 当前字符存放到AL中，解密后存放到AH中
+    ; 3. 把AH写到解密输出字符串DEC_OUTPUT_BUF的对应位置
+    ; 4. 输入解密后的字符串
+    MOV CL, ENC_INPUT_BUF + 1  ; 获取字符串长度到CX中
+    MOV CH, 0
+    LEA DI, ENC_INPUT_BUF + 2  ; DI指向加密输入字符串的开头
+    LEA BX, DEC_OUTPUT_BUF  ; BX指向解密输出字符串的开头
+DEC_LABEL:
+    MOV AL, DS:[DI]  ; 每次循环取出需要解密的字符
+    ; 在密文表中查找AL出现的下标
+    LEA SI, CIPHER_TABLE  ; SI指向密文表的首地址
+NOT_FIND_IDX:
+    CMP DS:[SI], AL  ; 当前密文表中的字符是否和需要解密的字符相同
+    JZ FIND_IDX  ; 找到了就跳出去
+    INC SI
+    JMP NOT_FIND_IDX
+FIND_IDX:
+    ; 此时SI指向密文表的某一个字符，恰好是需要解密的字符
+    ; 求出SI相对于密文表首地址的偏移值
+    SUB SI, OFFSET CIPHER_TABLE
+    ; 在明文表中取出对应位置的字符存放到AH中
+    LEA DX, PLAIN_TABLE  ; 获取明文表的首地址
+    ; 取出密文表对应下标在明文表中的值
+    ADD SI, DX
+    MOV AH, DS:[SI]
+    ; 将AH写到DEC_OUTPUT_BUF的对应位置
+    MOV DS:[BX], AH
+    INC DI
+    INC BX
+    LOOP DEC_LABEL
+OUTPUT_DEC_OUTPUT_BUF:  ; 输出解密后的字符串
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, AFTER_DEC
+    INT 21H
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, DEC_OUTPUT_BUF
+    INT 21H    
+    CALL PRINT_LINE
     RET
 DEC_A_STR ENDP
 
 
 ; 加密一个文件
 ENC_A_FILE PROC
-
+    ; 读入文件名
+    ; 将文件内容读入到ORI_INPUT_BUF+2
+    ; 设置一个全局FILE_FLAG标记，用来表示ENC_A_STR子程序是否需要读入字符串
+    ; 如果FILE_FLAG=1表示是文件加密，就不用读入需要加密的字符串
+    ; 长度设在ORI_INPUT_BUF+1位置
+    ; 这样就可以直接调用加密字符串的函数了
+    ; 在加密字符串函数的输出阶段，输出字符串仍然存放在ENC_OUTPUT_BUF
+    ; 但是要根据这个FILE_FLAG标记来选择是否输出到特定文件还是输出道屏幕上
+    ; 还是直接输出到屏幕
 
 
     RET
@@ -338,6 +402,108 @@ SHOW_ORI_AND_DEC_FILE PROC
 
     RET
 SHOW_ORI_AND_DEC_FILE ENDP
+
+
+; 生成密文表
+GENERATE_CIPHER_TABLE PROC
+    CALL INPUT_A_KEY  ; 读入KEY
+
+    ; 下面由明文表生成密文表
+    MOV CX, 62
+    LEA DI, PLAIN_TABLE   ; DI指向明文表的首地址
+    LEA SI, CIPHER_TABLE  ; SI指向密文表的首地址
+LABLE2:
+    ; 取出当前枚举的字符
+    MOV AL, DS:[DI]  ; AL表示原字符串的当前字符
+    ; 讨论ch=AL的3种情况，将加密的结果写到AH中
+G_TAG1:
+    ; 1. AL='a'~'z'
+    CMP AL, 'a'
+    ; AL<'a'就跳到TAG2
+    JB G_TAG2
+    ; 否则一定满足AL为小写字母
+    SUB AL, 'a'
+    MOV AH, AL
+    JMP G_TAG_END
+G_TAG2:
+    ; 2. AL='A'~'Z'
+    CMP AL, 'A'
+    ; al<'A'就跳到TAG3
+    JB G_TAG3
+    ; 否则一定满足AL为大写字母
+    SUB AL, 'A'
+    MOV AH, AL
+    ADD AH, 26
+    JMP G_TAG_END
+G_TAG3:
+    ; 3. AL='0'~'9'
+    SUB AL, '0'
+    MOV AH, AL
+    ADD AH, 52
+G_TAG_END:
+    ; AH+=KEY得到明文表中的新下标
+    ADD AH, KEY
+    ; AH %= 62
+    ; 如果AH>=62,AH-=62
+    CMP AH, 62
+    JB G_NOT_MOD  ; AH<62就不%62
+    SUB AH, 62  
+G_NOT_MOD:    
+    ; 此时AH中得到了明文表中的新下标
+    ; 讨论AH的3种情况
+    ; 1 AH=0~25, 密文=AH+'a'
+    ; 2 AH=26~51, 密文=AH+'A'
+    ; 3 AH=52~61, 密文=AH+'0'
+G_NEW_TAG1:
+    CMP AH, 25
+    ; AH>25就跳转NEW_TAG2
+    JA G_NEW_TAG2
+    ADD AH, 'a'
+    MOV DS:[SI], AH  ; 将密文写到加密输出符号串的对应位置
+    JMP G_CUR_END  ; 之前这里忘记JMP了
+G_NEW_TAG2:
+    CMP AH, 51
+    ; AH>51就跳转NEW_TAG3
+    JA G_NEW_TAG3
+    SUB AH, 26
+    ADD AH, 'A'
+    MOV DS:[SI], AH 
+    JMP G_CUR_END
+G_NEW_TAG3:
+    SUB AH, 52
+    ADD AH, '0'
+    MOV DS:[SI], AH
+G_CUR_END:
+    INC SI
+    INC DI
+    LOOP LABLE2
+; OUTPUT_CIPHER_TABLE:  ; 输出密文表验证（已验证正确）
+;     CALL PRINT_LINE
+;     MOV AH, 09H
+;     LEA DX, CIPHER_TABLE
+;     INT 21H
+;     CALL PRINT_LINE
+    RET
+GENERATE_CIPHER_TABLE ENDP
+
+
+; 输入KEY
+INPUT_A_KEY PROC
+    ; 提示输入小于10的非负整数
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, KEY_INPUT
+    INT 21H
+    ; CALL PRINT_LINE
+
+    ; 接收用户输入一个小于10的非负整数（合法性暂时不验证）
+    ; 1号功能调用，从键盘键入一个字符，出口参数AL=按键ASCII码
+    MOV AH, 01H
+    INT 21H
+    SUB AL, 30H
+    MOV KEY, AL  ; 将key存放到KEY
+    RET
+INPUT_A_KEY ENDP
 
 
 ; 打印换行
