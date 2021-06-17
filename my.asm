@@ -1,8 +1,9 @@
 DATA SEGMENT
 
-ORI_FILE DB 'fils\ori_file.txt', 0  ; 原始文件
-ENC_FILE DB 'files\enc_file.txt', 0  ; 加密文件
-DEC_FILE DB 'files\dec_file.txt', 0  ; 解密文件
+ORI_FILE DB 15, ?, 14 DUP(?)  ; 原始文件，注意打开文件时需要以0为结束符
+ENC_FILE DB 15, ?, 14 DUP(?)  ; 加密文件
+DEC_FILE DB 15, ?, 14 DUP(?)  ; 解密文件
+FILENAME_INPUT DB 'Please input filename: ', '$'  ; 请输入文件名的提示语句
 CHOICE1 DB '1. Encrypt a string.', '$'  ; 1. 加密字符串
 CHOICE2 DB '2. Decrypt a string.', '$'  ; 2. 解密字符串
 CHOICE3 DB '3. Encrypt a file.', '$'  ; 3.加密文件
@@ -20,8 +21,16 @@ DEC_OUTPUT_BUF DB 100 DUP(?)  ;  解密文的输出缓冲区
 KEY DB 0  ; 密钥0~9
 AFTER_ENC DB 'String after encryption: ', '$'
 AFTER_DEC DB 'String after decryption: ', '$'
-PLAIN_TABLE DB 'abcdedghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', '$'
-CIPHER_TABLE DB 62 DUP(?), '$'  ; 密文表（由明文循环左移KEY位得到）
+PLAIN_TABLE DB 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', '$'
+CIPHER_TABLE DB 62 DUP(?), '$'  ; 密文表
+FILE_FLAG DB 0  ; 1表示当前是对文件操作，0表示对字符串操作 
+FILE_ID DB 2 DUP(?)  ; 文件号
+FILE_SZ DB 5 DUP(?)  ; 文件大小
+ENC_A_FILE_SUCCESS DB 'Encrypt file successfully!', '$'  ; 加密文件成功的提示语句
+OPEN_FILE_ERROR_W DB 'Open file error by writing only!', '$'  ; 以只写的方式打开文件失败的提示语句
+OPEN_FILE_ERROR_R DB 'Open file error by reading only!', '$'  ; 以只读的方式打开文件失败的提示语句
+READ_FILE_ERROR DB 'Read file error!', '$'  ; 读文件失败的提示语句
+WRITE_FILE_ERROR DB 'Write file error!', '$'  ; 写文件失败的提示语句
 
 DATA ENDS
 
@@ -33,8 +42,6 @@ BEG:
     MOV DS, AX
     ; 显示主菜单
     CALL SHOW_MAIN_MENU
-    
-    ; call SHOW_MAIN_MENU
     ; 1. 加密字符串 -> 输入字符串和key
     ; 2. 解密字符串 -> 输入字符串和key
     ; 3. 加密文件 -> 输入文件路径和key,输入加密后的文件路径
@@ -43,7 +50,7 @@ BEG:
     ; 6. Exit
     ; 1,2,3,4,5完成后会跳转回到主菜单
 
-CALL_SOLVE_CHOICE:  ; 处理用户的选择
+REPEAT_SOLVE_CHOICE:  ; 处理用户的选择
     CALL SOLVE_CHOICE
     JMP BEG
 
@@ -138,7 +145,7 @@ INVALID:  ; 输入不合法
     LEA DX, CHOICE_INPUT_ERROR
     INT 21H
     CALL PRINT_LINE
-    JMP CALL_SOLVE_CHOICE
+    JMP REPEAT_SOLVE_CHOICE
 SOLVE_CHOICE_END:
     RET
 SOLVE_CHOICE ENDP
@@ -146,10 +153,12 @@ SOLVE_CHOICE ENDP
 
 ; 加密一个字符串
 ENC_A_STR PROC
+    CMP FILE_FLAG, 1
+    JZ NOT_INPUT_STR  ; FILE_FLAG=1直接跳转
+
     ; 1. 输入字符串
     ; 2. 加密字符串
     ; 3. 输出加密后的字符串
-
     ; 提示输入一个字符串
     CALL PRINT_LINE
     MOV AH, 09H
@@ -163,6 +172,10 @@ ENC_A_STR PROC
     MOV AH, 0AH
     LEA DX, ORI_INPUT_BUF
     INT 21H
+
+    ; 验证合法性（只含有数字和字母，暂时不写）
+
+NOT_INPUT_STR:  ; 当FILE_FLAG=1时，ORI_INPUT_BUF+2由文件导入，不需要上面输入。
     ; 获取字符串长度存到AL中
     MOV AL, ORI_INPUT_BUF + 1
     MOV AH, 0
@@ -170,15 +183,13 @@ ENC_A_STR PROC
     MOV ORI_INPUT_BUF[SI + 2], '$'  ; 将字符串末尾的0DH替换成$
     ; 注意加密字符串是从0位置开始存放的，前面没有最大长度以及实际长度字段
     MOV ENC_OUTPUT_BUF[SI], '$'  ; 将字符串末尾的0DH替换成$
-    
+
     ; 输出上述字符串验证（已正确输出）
     ; CALL PRINT_LINE
     ; MOV AH, 09H
     ; LEA DX, ORI_INPUT_BUF + 2
     ; INT 21H
     ; CALL PRINT_LINE
-
-    ; 验证合法性（只含有数字和字母，暂时不写）
 
     CALL INPUT_A_KEY  ; 读入KEY
 
@@ -280,16 +291,20 @@ CUR_END:
     INC DI
     LOOP LABLE1
 ENC_END:  ; 加密完成
+    ; 若FILE_FLAG=1，则不将字符串内容输出到屏幕
+    ; CMP FILE_FLAG, 1
+    ; JZ END_RET
     ; 输出加密后的字符串ENC_OUTPUT_BUF
-    CALL PRINT_LINE
-    MOV AH, 09H
-    LEA DX, AFTER_ENC
-    INT 21H
+    ; CALL PRINT_LINE
+    ; MOV AH, 09H
+    ; LEA DX, AFTER_ENC
+    ; INT 21H
     CALL PRINT_LINE
     MOV AH, 09H
     LEA DX, ENC_OUTPUT_BUF
     INT 21H
     CALL PRINT_LINE
+END_RET:
     RET
 ENC_A_STR ENDP
 
@@ -383,7 +398,150 @@ ENC_A_FILE PROC
     ; 但是要根据这个FILE_FLAG标记来选择是否输出到特定文件还是输出道屏幕上
     ; 还是直接输出到屏幕
 
+    MOV FILE_FLAG, 1  ; 标记当前为文件操作
+    ; 提示输入原文件名
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, FILENAME_INPUT
+    INT 21H
+    CALL PRINT_LINE
+    ; 输入原文件名，实际从ORI_FILE+2单元开始存
+    MOV AH, 0AH
+    LEA DX, ORI_FILE
+    INT 21H
+    ; 将ORI_FILE的结束符设为0
+    MOV AL, ORI_FILE + 1  ; 取出长度
+    MOV AH, 0
+    MOV SI, AX  ; 长度赋给SI
+    MOV ORI_FILE[SI + 2], 0  ; 文件名字符串结束符置为0
+    ; 以只读的方式打开文件
+    ; 3DH功能调用
+    ; 入口参数
+    ; DX=文件名字符串首地址
+    ; AL=00只读
+    ; 出口参数
+    ; CF=0打开成功，AX=文件号
+    ; CF=1打开失败，AX=错误代码
+    MOV AH, 3DH
+    MOV AL, 00H  ; 读
+    LEA DX, ORI_FILE + 2
+    INT 21H
+    
+    JNC OPEN_SUCCESS  ; 打开成功
 
+    ; 这里写以只读打开文件失败的提示语句，并要求重新输入
+    MOV AH, 09H
+    LEA DX, OPEN_FILE_ERROR_R
+    INT 21H
+    JMP ENC_FILE_END
+    
+OPEN_SUCCESS:  ; 打开文件成功，下面进行读文件
+    LEA BX, FILE_ID
+    MOV [BX], AX  ; 将打开的文件的文件号AX存放到FILE_ID中
+    ; 3FH功能调用，读文件
+    ; 入口参数：BX=文件号
+    ; CX=读入字节数
+    ; DX=准备存放所读取数据的缓冲区的首地址
+    ; 出口参数：
+    ; CF=0读取成功，AX=实际读取到的字节数
+    ; CF=1读取失败，AX=错误代码
+    ; 将文件内容读出后写到ORI_INPUT_BUF+2开始的单元，+1单元写上长度
+    MOV AH, 3FH
+    MOV BX, WORD PTR FILE_ID
+    MOV CX, 100 ; 要读入整个文件，CX应该大于等于整个文件内容的字节数
+    LEA DX, ORI_INPUT_BUF + 2
+    INT 21H
+    
+    JNC READ_SUCCESS
+
+    ; 这里写读文件失败的提示语句，并要求重新输入
+    MOV AH, 09H
+    LEA DX, READ_FILE_ERROR
+    INT 21H
+    JMP ENC_FILE_END
+
+READ_SUCCESS:  ; 读取文件成功，出口参数AX=实际读取的字节数
+    ; 将文件大小AX也要写入ORI_INPUT_BUF+1单元
+    LEA BX, ORI_INPUT_BUF + 1
+    MOV [BX], AX ; 将文件的实际大小存到ORI_INPUT_BUF+1单元
+    ; MOV ORI_INPUT_BUF + 1, 12 ; debug----
+
+    ; 调用加密字符串ORI_INPUT_BUF+2的子程序
+    CALL ENC_A_STR
+
+    ; 输入加密后的文件名
+    ; 将ENC_OUTPUT_BUF内容写入该文件
+    ; 提示输入加密文件名
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, FILENAME_INPUT
+    INT 21H
+    CALL PRINT_LINE
+    ; 输入加密文件名，实际从ENC_FILE+2单元开始存
+    MOV AH, 0AH
+    LEA DX, ENC_FILE
+    INT 21H
+    ; 将ENC_FILE的结束符设为0
+    MOV AL, ENC_FILE + 1  ; 取出长度
+    MOV AH, 0
+    MOV SI, AX  ; 长度赋给SI
+    MOV ENC_FILE[SI + 2], 0  ; 结束符置为0
+    ; 以写的方式打开文件
+    ; 3DH功能调用
+    ; 入口参数
+    ; DX=文件名字符串首地址
+    ; AL=01只写
+    ; 出口参数
+    ; CF=0打开成功，AX=文件号
+    ; CF=1打开失败，AX=错误代码
+    MOV AH, 3DH
+    MOV AL, 01H  ; 写
+    LEA DX, ENC_FILE + 2
+    INT 21H
+    
+    JNC WRITE_OPEN_SUCCESS  ; 打开文件成功
+    
+    ; 这里输出以写的方式打开文件失败的提示信息
+    MOV AH, 09H
+    LEA DX, OPEN_FILE_ERROR_W
+    INT 21H
+    JMP ENC_FILE_END
+
+WRITE_OPEN_SUCCESS:  ; 以写的方式打开文件成功
+    LEA BX, FILE_ID
+    MOV [BX], AX  ; 将需要写的文件号存到FILE_ID中
+    ; 下面进行写文件
+    ; 40H功能调用
+    ; 入口参数
+    ; DX=缓冲区地址
+    ; BX=文件号
+    ; CX=需要写入的字节数
+    MOV AH, 40H
+    MOV BX, WORD PTR FILE_ID
+    LEA DX, ENC_OUTPUT_BUF
+    MOV CL, ORI_INPUT_BUF + 1  ; 写入字节数=读出字节数
+    MOV CH, 0  ; 这里之前写出了bug，原因是MOV CX, WORD PTR  ORI_INPUT_BUF + 1
+    ; 实际上长度字段只占用了1个字节，而注释里的写法，把字符串的第一个字符也赋值给CX了
+    INT 21H
+
+    JNC WRITE_SUCCESS  ; 写入文件成功
+
+    ; 这里输出写文件失败的提示信息
+    MOV AH, 09H
+    LEA DX, WRITE_FILE_ERROR
+    INT 21H
+    JMP ENC_FILE_END
+
+WRITE_SUCCESS:  ; 写入文件成功
+    ; 输出成功的提示语句
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, ENC_A_FILE_SUCCESS
+    INT 21H
+    CALL PRINT_LINE
+
+ENC_FILE_END:  ; 加密文件完成
+    MOV FILE_FLAG, 0  ; 恢复标记
     RET
 ENC_A_FILE ENDP
 
@@ -398,7 +556,8 @@ DEC_A_FILE ENDP
 
 ; 显示原文件和解密的文件
 SHOW_ORI_AND_DEC_FILE PROC
-
+    ; 根据ORI_FILE、DEC_FILE
+    ; 打开文件并输出内容
 
     RET
 SHOW_ORI_AND_DEC_FILE ENDP
@@ -415,7 +574,7 @@ GENERATE_CIPHER_TABLE PROC
 LABLE2:
     ; 取出当前枚举的字符
     MOV AL, DS:[DI]  ; AL表示原字符串的当前字符
-    ; 讨论ch=AL的3种情况，将加密的结果写到AH中
+    ; 讨论ch=AL的3种情况
 G_TAG1:
     ; 1. AL='a'~'z'
     CMP AL, 'a'
