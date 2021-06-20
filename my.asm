@@ -486,6 +486,14 @@ READ_SUCCESS:  ; 读取文件成功，出口参数AX=实际读取的字节数
     MOV AH, 0
     MOV SI, AX  ; 长度赋给SI
     MOV ENC_FILE[SI + 2], 0  ; 结束符置为0
+
+    ; 创建文件
+    ; 3CH功能调用
+    MOV AH, 3CH
+    MOV CX, 0  ; 普通文件
+    LEA DX, ENC_FILE + 2
+    INT 21H
+
     ; 以写的方式打开文件
     ; 3DH功能调用
     ; 入口参数
@@ -541,7 +549,12 @@ WRITE_SUCCESS:  ; 写入文件成功
     CALL PRINT_LINE
 
 ENC_FILE_END:  ; 加密文件完成
-    MOV FILE_FLAG, 0  ; 恢复标记
+    ; 关闭文件
+    MOV AH, 3EH
+    MOV BX, WORD PTR FILE_ID
+    INT 21H
+    ; 恢复标记
+    MOV FILE_FLAG, 0  
     RET
 ENC_A_FILE ENDP
 
