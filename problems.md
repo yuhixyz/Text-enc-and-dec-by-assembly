@@ -22,4 +22,18 @@ MOV CX, WORD PTR ENC_INPUT_BUF + 1
 MOV AH, 3EH
 MOV BX, WORD PTR FILE_ID  ; 文件号
 INT 21H
+``
+4. 和第1点类似，都是因为想修改一个字节却修改了一个字的长度
+
+```assembly
+; 本意是想要3FH功能调用出口参数AX=实际读取的字节数，存放到长度字段
+; 于是写成了下面这两行
+LEA BX, ORI_INPUT_BUF + 1
+MOV [BX], AX
+
+; 注意！上面的做法，影响到了ORI_INPUT_BUF + 2单元，这个单元开始是存放字符串的，而这个单元却被AX的16位中的8位覆盖了，故出错。
+
+; 应该如下写法
+LEA BX, ORI_INPUT_BUF + 1
+MOV BYTE PTR [BX], AX
 ```

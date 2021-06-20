@@ -292,13 +292,13 @@ CUR_END:
     LOOP LABLE1
 ENC_END:  ; 加密完成
     ; 若FILE_FLAG=1，则不将字符串内容输出到屏幕
-    ; CMP FILE_FLAG, 1
-    ; JZ END_RET
+    CMP FILE_FLAG, 1
+    JZ END_RET
     ; 输出加密后的字符串ENC_OUTPUT_BUF
-    ; CALL PRINT_LINE
-    ; MOV AH, 09H
-    ; LEA DX, AFTER_ENC
-    ; INT 21H
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, AFTER_ENC
+    INT 21H
     CALL PRINT_LINE
     MOV AH, 09H
     LEA DX, ENC_OUTPUT_BUF
@@ -463,7 +463,8 @@ OPEN_SUCCESS:  ; 打开文件成功，下面进行读文件
 READ_SUCCESS:  ; 读取文件成功，出口参数AX=实际读取的字节数
     ; 将文件大小AX也要写入ORI_INPUT_BUF+1单元
     LEA BX, ORI_INPUT_BUF + 1
-    MOV [BX], AX ; 将文件的实际大小存到ORI_INPUT_BUF+1单元
+    MOV BYTE PTR [BX], AL ; 将文件的实际大小存到ORI_INPUT_BUF+1单元
+    ; 上面两句有bug，会导致第ORI_INPUT_BUF+2位置的字符变成0
     ; MOV ORI_INPUT_BUF + 1, 12 ; debug----
 
     ; 调用加密字符串ORI_INPUT_BUF+2的子程序
