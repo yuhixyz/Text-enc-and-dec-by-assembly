@@ -27,6 +27,7 @@ FILE_FLAG DB 0  ; 1表示当前是对文件操作，0表示对字符串操作
 FILE_ID DB 2 DUP(?)  ; 文件号
 FILE_SZ DB 5 DUP(?)  ; 文件大小
 ENC_A_FILE_SUCCESS DB 'Encrypt file successfully!', '$'  ; 加密文件成功的提示语句
+DEC_A_FILE_SUCCESS DB 'Decrypt file successfully!', '$'  ; 解密文件成功的提示语句
 OPEN_FILE_ERROR_W DB 'Open file error by writing only!', '$'  ; 以只写的方式打开文件失败的提示语句
 OPEN_FILE_ERROR_R DB 'Open file error by reading only!', '$'  ; 以只读的方式打开文件失败的提示语句
 READ_FILE_ERROR DB 'Read file error!', '$'  ; 读文件失败的提示语句
@@ -311,6 +312,8 @@ ENC_A_STR ENDP
 
 ; 解密一个字符串
 DEC_A_STR PROC
+    CMP FILE_FLAG, 1
+    JZ NOT_INPUT_STR2  ; FILE_FLAG=1直接跳转
     ; 1. 输入字符串
     ; 2. 解密字符串
     ; 3. 输出解密后的字符串
@@ -329,6 +332,8 @@ DEC_A_STR PROC
     MOV AH, 0AH
     LEA DX, ENC_INPUT_BUF
     INT 21H
+
+NOT_INPUT_STR2:    
     ; 获取字符串长度存到AL中
     MOV AL, ENC_INPUT_BUF + 1
     MOV AH, 0
@@ -373,6 +378,8 @@ FIND_IDX:
     INC BX
     LOOP DEC_LABEL
 OUTPUT_DEC_OUTPUT_BUF:  ; 输出解密后的字符串
+    CMP FILE_FLAG, 1  ; 如果为文件操作就不输出到屏幕上
+    JZ DEC_END_RET
     CALL PRINT_LINE
     MOV AH, 09H
     LEA DX, AFTER_DEC
@@ -382,6 +389,7 @@ OUTPUT_DEC_OUTPUT_BUF:  ; 输出解密后的字符串
     LEA DX, DEC_OUTPUT_BUF
     INT 21H    
     CALL PRINT_LINE
+DEC_END_RET:
     RET
 DEC_A_STR ENDP
 
@@ -562,8 +570,171 @@ ENC_A_FILE ENDP
 
 ; 解密一个文件
 DEC_A_FILE PROC
+    ; 读入文件名
+    ; 将文件内容读入到ENC_INPUT_BUF+2
+    ; 设置一个全局FILE_FLAG标记，用来表示DEC_A_STR子程序是否需要读入字符串
+    ; 如果FILE_FLAG=1表示是文件解密，就不用读入需要解密的字符串
+    ; 长度设在ENC_INPUT_BUF+1位置
+    ; 这样就可以直接调用解密字符串的函数了
+    ; 在解密字符串函数的输出阶段，输出字符串仍然存放在DEC_OUTPUT_BUF
+    ; 但是要根据这个FILE_FLAG标记来选择是否输出到特定文件还是输出道屏幕上
 
+    MOV FILE_FLAG, 1  ; 标记当前为文件操作
+    ; 提示输入需要解密的文件名
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, FILENAME_INPUT
+    INT 21H
+    CALL PRINT_LINE
+    ; 输入需要解密的文件的文件名（即当前为加密文件），实际从ENC_FILE+2单元开始存
+    MOV AH, 0AH
+    LEA DX, ENC_FILE
+    INT 21H
+    ; 将ENC_FILE的结束符设为0
+    MOV AL, ENC_FILE + 1  ; 取出长度
+    MOV AH, 0
+    MOV SI, AX  ; 长度赋给SI
+    MOV ENC_FILE[SI + 2], 0  ; 文件名字符串结束符置为0
+    ; 以只读的方式打开文件
+    ; 3DH功能调用
+    ; 入口参数
+    ; DX=文件名字符串首地址
+    ; AL=00只读
+    ; 出口参数
+    ; CF=0打开成功，AX=文件号
+    ; CF=1打开失败，AX=错误代码
+    MOV AH, 3DH
+    MOV AL, 00H  ; 读
+    LEA DX, ENC_FILE + 2
+    INT 21H
+    
+    JNC OPEN_SUCCESS2  ; 打开成功
 
+    ; 这里写以只读打开文件失败的提示语句，并要求重新输入
+    MOV AH, 09H
+    LEA DX, OPEN_FILE_ERROR_R
+    INT 21H
+    JMP DEC_FILE_END
+    
+OPEN_SUCCESS2:  ; 打开文件成功，下面进行读文件
+    LEA BX, FILE_ID
+    MOV [BX], AX  ; 将打开的文件的文件号AX存放到FILE_ID中
+    ; 3FH功能调用，读文件
+    ; 入口参数：BX=文件号
+    ; CX=读入字节数
+    ; DX=准备存放所读取数据的缓冲区的首地址
+    ; 出口参数：
+    ; CF=0读取成功，AX=实际读取到的字节数
+    ; CF=1读取失败，AX=错误代码
+    ; 将文件内容读出后写到ENC_INPUT_BUF+2开始的单元，+1单元写上长度
+    MOV AH, 3FH
+    MOV BX, WORD PTR FILE_ID
+    MOV CX, 100 ; 要读入整个文件，CX应该大于等于整个文件内容的字节数
+    LEA DX, ENC_INPUT_BUF + 2
+    INT 21H
+    
+    JNC READ_SUCCESS2
+
+    ; 这里写读文件失败的提示语句，并要求重新输入
+    MOV AH, 09H
+    LEA DX, READ_FILE_ERROR
+    INT 21H
+    JMP DEC_FILE_END
+
+READ_SUCCESS2:  ; 读取文件成功，出口参数AX=实际读取的字节数
+    ; 将文件大小AX也要写入ENC_INPUT_BUF+1单元
+    LEA BX, ENC_INPUT_BUF + 1
+    MOV BYTE PTR [BX], AL ; 将文件的实际大小存到ENC_INPUT_BUF+1单元
+
+    ; 调用解密字符串ENC_INPUT_BUF+2的子程序
+    CALL DEC_A_STR
+
+    ; 输入解密后后的文件名
+    ; 将ENC_OUTPUT_BUF内容写入该文件
+    ; 提示输入加密文件名
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, FILENAME_INPUT
+    INT 21H
+    CALL PRINT_LINE
+    ; 输入解密后的文件名，实际从DEC_FILE+2单元开始存
+    MOV AH, 0AH
+    LEA DX, DEC_FILE
+    INT 21H
+    ; 将DEC_FILE的结束符设为0
+    MOV AL, DEC_FILE + 1  ; 取出长度
+    MOV AH, 0
+    MOV SI, AX  ; 长度赋给SI
+    MOV DEC_FILE[SI + 2], 0  ; 结束符置为0
+
+    ; 创建文件
+    ; 3CH功能调用
+    MOV AH, 3CH
+    MOV CX, 0  ; 普通文件
+    LEA DX, DEC_FILE + 2
+    INT 21H
+
+    ; 以写的方式打开文件
+    ; 3DH功能调用
+    ; 入口参数
+    ; DX=文件名字符串首地址
+    ; AL=01H只写
+    ; 出口参数
+    ; CF=0打开成功，AX=文件号
+    ; CF=1打开失败，AX=错误代码
+    MOV AH, 3DH
+    MOV AL, 01H  ; 写
+    LEA DX, DEC_FILE + 2
+    INT 21H
+    
+    JNC WRITE_OPEN_SUCCESS2  ; 打开文件成功
+    
+    ; 这里输出以写的方式打开文件失败的提示信息
+    MOV AH, 09H
+    LEA DX, OPEN_FILE_ERROR_W
+    INT 21H
+    JMP DEC_FILE_END
+
+WRITE_OPEN_SUCCESS2:  ; 以写的方式打开文件成功
+    LEA BX, FILE_ID
+    MOV [BX], AX  ; 将需要写的文件号存到FILE_ID中
+    ; 下面进行写文件
+    ; 40H功能调用
+    ; 入口参数
+    ; DX=缓冲区地址
+    ; BX=文件号
+    ; CX=需要写入的字节数
+    MOV AH, 40H
+    MOV BX, WORD PTR FILE_ID
+    LEA DX, DEC_OUTPUT_BUF
+    MOV CL, ENC_INPUT_BUF + 1  ; 写入字节数=读出字节数
+    MOV CH, 0  ; 这里之前写出了bug，原因是MOV CX, WORD PTR  ORI_INPUT_BUF + 1
+    ; 实际上长度字段只占用了1个字节，而注释里的写法，把字符串的第一个字符也赋值给CX了
+    INT 21H
+
+    JNC WRITE_SUCCESS2  ; 写入文件成功
+
+    ; 这里输出写文件失败的提示信息
+    MOV AH, 09H
+    LEA DX, WRITE_FILE_ERROR
+    INT 21H
+    JMP DEC_FILE_END
+
+WRITE_SUCCESS2:  ; 写入文件成功
+    ; 输出成功的提示语句
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, DEC_A_FILE_SUCCESS
+    INT 21H
+    CALL PRINT_LINE
+
+DEC_FILE_END:  ; 解密文件完成
+    ; 关闭文件
+    MOV AH, 3EH
+    MOV BX, WORD PTR FILE_ID
+    INT 21H
+    ; 恢复标记
+    MOV FILE_FLAG, 0  
     RET
 DEC_A_FILE ENDP
 

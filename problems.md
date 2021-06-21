@@ -35,5 +35,5 @@ MOV [BX], AX
 
 ; 应该如下写法
 LEA BX, ORI_INPUT_BUF + 1
-MOV BYTE PTR [BX], AX
+MOV BYTE PTR [BX], AL
 ```
