@@ -32,6 +32,10 @@ OPEN_FILE_ERROR_W DB 'Open file error by writing only!', '$'  ; 以只写的方�
 OPEN_FILE_ERROR_R DB 'Open file error by reading only!', '$'  ; 以只读的方式打开文件失败的提示语句
 READ_FILE_ERROR DB 'Read file error!', '$'  ; 读文件失败的提示语句
 WRITE_FILE_ERROR DB 'Write file error!', '$'  ; 写文件失败的提示语句
+ORI_READ_BUF DB 100 DUP(?)
+DEC_READ_BUF DB 100 DUP(?)
+DISPLAY_ORI_FILE DB 'Orginal file: ', '$'  ; 显示原始文件的提示语句
+DISPLAY_DEC_FILE DB 'Decrypted file: ', '$'  ; 显示解密文件的提示语句
 
 DATA ENDS
 
@@ -95,6 +99,7 @@ SOLVE_CHOICE_BEG:
     MOV AH, 09H
     LEA DX, CHOICE_INPUT
     INT 21H
+    CALL PRINT_LINE
     ; 1号功能调用，读入一个字符
     ; 出口参数：AL=输入字符的ASCII码
     MOV AH, 01H
@@ -472,9 +477,12 @@ READ_SUCCESS:  ; 读取文件成功，出口参数AX=实际读取的字节数
     ; 将文件大小AX也要写入ORI_INPUT_BUF+1单元
     LEA BX, ORI_INPUT_BUF + 1
     MOV BYTE PTR [BX], AL ; 将文件的实际大小存到ORI_INPUT_BUF+1单元
-    ; 上面两句有bug，会导致第ORI_INPUT_BUF+2位置的字符变成0
-    ; MOV ORI_INPUT_BUF + 1, 12 ; debug----
-
+    
+    ; 关闭ORI_FILE
+    MOV AH, 3EH
+    MOV BX, WORD PTR FILE_ID
+    INT 21H
+    
     ; 调用加密字符串ORI_INPUT_BUF+2的子程序
     CALL ENC_A_STR
 
@@ -646,6 +654,11 @@ READ_SUCCESS2:  ; 读取文件成功，出口参数AX=实际读取的字节数
     LEA BX, ENC_INPUT_BUF + 1
     MOV BYTE PTR [BX], AL ; 将文件的实际大小存到ENC_INPUT_BUF+1单元
 
+    ; 关闭ENC_FILE
+    MOV AH, 3EH
+    MOV BX, WORD PTR FILE_ID
+    INT 21H
+
     ; 调用解密字符串ENC_INPUT_BUF+2的子程序
     CALL DEC_A_STR
 
@@ -741,9 +754,94 @@ DEC_A_FILE ENDP
 
 ; 显示原文件和解密的文件
 SHOW_ORI_AND_DEC_FILE PROC
-    ; 根据ORI_FILE、DEC_FILE
+    ; 根据之前用户输入的ORI_FILE、DEC_FILE
     ; 打开文件并输出内容
+    
+    ; 打开ORI_FILE
+    MOV AH, 3DH
+    MOV AL, 00H  ; 读
+    LEA DX, ORI_FILE + 2
+    INT 21H
 
+    LEA BX, FILE_ID
+    MOV [BX], AX  ; 将打开的文件的文件号AX存放到FILE_ID中
+    
+    ; 将ORI_FILE文件内容读出后写到ORI_READ_BUF
+    MOV AH, 3FH
+    MOV BX, WORD PTR FILE_ID
+    MOV CX, 100 ; 要读入整个文件，CX应该大于等于整个文件内容的字节数
+    LEA DX, ORI_READ_BUF + 2
+    INT 21H
+
+    ; 读入文件成功，将长度写到ORI_READ_BUF+1单元
+    LEA BX, ORI_READ_BUF + 1
+    MOV BYTE PTR [BX], AL
+
+    ; 显示输出提示语句
+    CALL PRINT_LINE
+    MOV AH, 09H
+    LEA DX, DISPLAY_ORI_FILE
+    INT 21H
+    CALL PRINT_LINE
+
+    ; 在ORI_READ_BUF末尾添加$，再用9号功能打印
+    MOV AL, ORI_READ_BUF + 1
+    MOV AH, 0
+    MOV SI, AX ; 内容长度
+    MOV ORI_READ_BUF[SI], '$'
+    MOV AH, 09H
+    LEA DX, ORI_READ_BUF + 2
+    INT 21H
+    CALL PRINT_LINE
+
+    ; 关闭ORI_FILE
+    MOV AH, 3EH
+    MOV BX, WORD PTR FILE_ID
+    INT 21H
+
+    ; --------------------------
+
+    ; 打开DEC_FILE
+    MOV AH, 3DH
+    MOV AL, 00H  ; 读
+    LEA DX, DEC_FILE + 2
+    INT 21H
+
+    LEA BX, FILE_ID
+    MOV [BX], AX  ; 将打开的文件的文件号AX存放到FILE_ID中
+    
+    ; 将DEC_FILE文件内容读出后写到DEC_READ_BUF
+    MOV AH, 3FH
+    MOV BX, WORD PTR FILE_ID
+    MOV CX, 100 ; 要读入整个文件，CX应该大于等于整个文件内容的字节数
+    LEA DX, DEC_READ_BUF + 2
+    INT 21H
+
+    ; 读入文件成功，将长度写到ORI_READ_BUF+1单元
+    LEA BX, DEC_READ_BUF + 1
+    MOV BYTE PTR [BX], AL
+
+    ; 显示输出提示语句
+    MOV AH, 09H
+    LEA DX, DISPLAY_DEC_FILE
+    INT 21H
+    CALL PRINT_LINE
+
+    ; 在DEC_READ_BUF末尾添加$，再用9号功能打印
+    MOV AL, DEC_READ_BUF + 1
+    MOV AH, 0
+    MOV SI, AX ; 内容长度
+    MOV DEC_READ_BUF[SI], '$'
+    MOV AH, 09H
+    LEA DX, DEC_READ_BUF + 2
+    INT 21H
+
+    ; 关闭DEC_FILE
+    MOV AH, 3EH
+    MOV BX, WORD PTR FILE_ID
+    INT 21H
+
+    CALL PRINT_LINE
     RET
 SHOW_ORI_AND_DEC_FILE ENDP
 
@@ -838,7 +936,7 @@ INPUT_A_KEY PROC
     MOV AH, 09H
     LEA DX, KEY_INPUT
     INT 21H
-    ; CALL PRINT_LINE
+    CALL PRINT_LINE
 
     ; 接收用户输入一个小于10的非负整数（合法性暂时不验证）
     ; 1号功能调用，从键盘键入一个字符，出口参数AL=按键ASCII码
