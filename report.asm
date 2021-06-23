@@ -1,8 +1,5 @@
 DATA SEGMENT
 
-ORI_FILE DB 15, ?, 14 DUP(?)  ; 原始文件，注意打开文件时需要以0为结束符
-ENC_FILE DB 15, ?, 14 DUP(?)  ; 加密文件
-DEC_FILE DB 15, ?, 14 DUP(?)  ; 解密文件
 FILENAME_INPUT DB 'Please input filename: ', '$'  ; 请输入文件名的提示语句
 CHOICE1 DB '1. Encrypt a string.', '$'  ; 1. 加密字符串
 CHOICE2 DB '2. Decrypt a string.', '$'  ; 2. 解密字符串
@@ -14,28 +11,31 @@ CHOICE_INPUT DB 'Your choice is: ', '$'
 CHOICE_INPUT_ERROR DB 'Please input valid choice!', '$'
 STR_INPUT DB 'Please input a string containing only numbers or letters: ', '$'
 KEY_INPUT DB 'Please input a non-negetive number smaller than 10: ', '$'
-ORI_INPUT_BUF DB 101, ?, 100 DUP(?)  ; 原文的输入缓冲区
-ENC_OUTPUT_BUF DB 100 DUP(?)  ; 密文的输出缓冲区
-ENC_INPUT_BUF DB 101, ?, 100 DUP(?)  ;  密文的输入缓冲区
-DEC_OUTPUT_BUF DB 100 DUP(?)  ;  解密文的输出缓冲区
-KEY DB 0  ; 密钥0~9
 AFTER_ENC DB 'String after encryption: ', '$'
 AFTER_DEC DB 'String after decryption: ', '$'
-PLAIN_TABLE DB 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', '$'
-CIPHER_TABLE DB 62 DUP(?), '$'  ; 密文表
-FILE_FLAG DB 0  ; 1表示当前是对文件操作，0表示对字符串操作 
-FILE_ID DB 2 DUP(?)  ; 文件号
-FILE_SZ DB 5 DUP(?)  ; 文件大小
+PLAIN_TABLE DB 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', '$'  ; 明文表
 ENC_A_FILE_SUCCESS DB 'Encrypt file successfully!', '$'  ; 加密文件成功的提示语句
 DEC_A_FILE_SUCCESS DB 'Decrypt file successfully!', '$'  ; 解密文件成功的提示语句
 OPEN_FILE_ERROR_W DB 'Open file error by writing only!', '$'  ; 以只写的方式打开文件失败的提示语句
 OPEN_FILE_ERROR_R DB 'Open file error by reading only!', '$'  ; 以只读的方式打开文件失败的提示语句
 READ_FILE_ERROR DB 'Read file error!', '$'  ; 读文件失败的提示语句
 WRITE_FILE_ERROR DB 'Write file error!', '$'  ; 写文件失败的提示语句
-ORI_READ_BUF DB 100 DUP(?)
-DEC_READ_BUF DB 100 DUP(?)
 DISPLAY_ORI_FILE DB 'Orginal file: ', '$'  ; 显示原始文件的提示语句
 DISPLAY_DEC_FILE DB 'Decrypted file: ', '$'  ; 显示解密文件的提示语句
+ORI_FILE DB 15, ?, 14 DUP(?)  ; 原始文件名，注意打开文件时需要以0为结束符
+ENC_FILE DB 15, ?, 14 DUP(?)  ; 加密文件名
+DEC_FILE DB 15, ?, 14 DUP(?)  ; 解密文件名
+ORI_INPUT_BUF DB 101, ?, 100 DUP(?)  ; 原文的输入缓冲区
+ENC_OUTPUT_BUF DB 100 DUP(?)  ; 密文的输出缓冲区
+ENC_INPUT_BUF DB 101, ?, 100 DUP(?)  ;  密文的输入缓冲区
+DEC_OUTPUT_BUF DB 100 DUP(?)  ;  解密文的输出缓冲区
+KEY DB 0  ; 密钥0~9
+CIPHER_TABLE DB 62 DUP(?), '$'  ; 密文表
+FILE_FLAG DB 0  ; 文件操作标记，1表示当前是对文件操作，0表示对字符串操作 
+FILE_ID DB 2 DUP(?)  ; 文件号
+FILE_SZ DB 5 DUP(?)  ; 文件大小
+DEC_READ_BUF DB 100 DUP(?)  ; 解密文件读取内容缓冲区
+ORI_READ_BUF DB 100 DUP(?)  ; 原始文件读取内容缓冲区
 
 DATA ENDS
 
@@ -446,7 +446,7 @@ ENC_A_FILE PROC
     MOV AH, 09H
     LEA DX, OPEN_FILE_ERROR_R
     INT 21H
-    JMP ENC_FILE_RET
+    JMP ENC_FILE_END
     
 OPEN_SUCCESS:  ; 打开文件成功，下面进行读文件
     LEA BX, FILE_ID
@@ -572,7 +572,6 @@ ENC_FILE_END:  ; 加密文件完成
     INT 21H
     ; 恢复标记
     MOV FILE_FLAG, 0  
-ENC_FILE_RET:
     RET
 ENC_A_FILE ENDP
 
@@ -623,7 +622,7 @@ DEC_A_FILE PROC
     MOV AH, 09H
     LEA DX, OPEN_FILE_ERROR_R
     INT 21H
-    JMP DEC_FILE_RET
+    JMP DEC_FILE_END
     
 OPEN_SUCCESS2:  ; 打开文件成功，下面进行读文件
     LEA BX, FILE_ID
@@ -749,7 +748,6 @@ DEC_FILE_END:  ; 解密文件完成
     INT 21H
     ; 恢复标记
     MOV FILE_FLAG, 0  
-DEC_FILE_RET:
     RET
 DEC_A_FILE ENDP
 
